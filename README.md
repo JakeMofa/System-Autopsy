@@ -94,3 +94,8 @@ npm run preview
 ## License
 
 Private repository - all rights reserved
+
+
+## source .venv/bin/activate
+
+## uvicorn app.main:app --reload
