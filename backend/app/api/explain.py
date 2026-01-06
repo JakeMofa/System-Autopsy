@@ -4,7 +4,9 @@ from pydantic import BaseModel
 from app.core.simulation import run_baseline_simulation
 from app.core.failures import FailureScenario, FAILURE_APPLIERS
 from app.core.propagation import propagate_failures
+
 from app.models.explanation import ExplanationResponse, MitigationSuggestion
+from app.ai.explainer import generate_ai_explanation
 
 router = APIRouter()
 
@@ -15,7 +17,7 @@ class ExplainRequest(BaseModel):
 
 @router.post("/explain", response_model=ExplanationResponse)
 def explain(request: ExplainRequest):
-    # Run baseline
+    #  Run baseline
     result = run_baseline_simulation()
 
     #  Apply failure
@@ -24,7 +26,7 @@ def explain(request: ExplainRequest):
         applier(result)
         propagate_failures(result)
 
-    # Deterministic explanation logic
+    #  Deterministic explanation
     text = []
     factors = []
     mitigations = []
@@ -37,7 +39,6 @@ def explain(request: ExplainRequest):
             "Database latency exceeded acceptable thresholds, causing request backlog."
         )
         factors.append("Database latency spike")
-
         mitigations.append(
             MitigationSuggestion(
                 action="Increase database capacity",
@@ -50,7 +51,6 @@ def explain(request: ExplainRequest):
             "Orders Service experienced increased latency due to downstream dependency issues."
         )
         factors.append("Downstream dependency degradation")
-
         mitigations.append(
             MitigationSuggestion(
                 action="Add circuit breakers",
@@ -61,6 +61,24 @@ def explain(request: ExplainRequest):
     if not text:
         text.append("System is operating within normal parameters.")
 
+    #  Build AI summary (structured, bounded)
+    summary = {
+        "system_mode": result.services["database"].status.value,
+        "affected_services": [
+            svc.name
+            for svc in result.services.values()
+            if svc.status.value != "healthy"
+        ],
+        "factors": factors,
+        "mitigations": [m.action for m in mitigations],
+    }
+
+    #  Optional AI explanation
+    ai_text = generate_ai_explanation(summary)
+    if ai_text:
+        text.insert(0, ai_text)
+
+    #  FINAL return (must be last)
     return ExplanationResponse(
         text=text,
         identified_factors=factors,
