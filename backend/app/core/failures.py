@@ -1,3 +1,4 @@
+##app/core/failures
 from enum import Enum
 from typing import Callable
 

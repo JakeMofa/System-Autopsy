@@ -1,6 +1,10 @@
-from fastapi import APIRouter
+# app/api/simulate.py
 
-from app.core.simulation import run_baseline_simulation
+from fastapi import APIRouter
+from pydantic import BaseModel
+from typing import Optional
+
+from app.core.simulation import run_simulation
 from app.models.simulation_state import SimulationState
 from app.models.topology import SystemTopology, ServiceNode, DependencyEdge
 from app.models.metrics import MetricsBundle, MetricPoint
@@ -8,9 +12,32 @@ from app.models.metrics import MetricsBundle, MetricPoint
 router = APIRouter()
 
 
+# -----------------------------
+# Request Model
+# -----------------------------
+
+class SimulateRequest(BaseModel):
+    scenario: Optional[str] = None
+
+
+# -----------------------------
+# Simulation Endpoint
+# -----------------------------
+
 @router.post("/simulate", response_model=SimulationState)
-def simulate():
-    result = run_baseline_simulation()
+def simulate(req: SimulateRequest):
+    """
+    Runs a system simulation.
+    - If scenario is None → baseline behavior
+    - If scenario is provided → scenario-aware degradation
+    """
+
+    # key 
+    result = run_simulation(req.scenario)
+
+    # -----------------------------
+    # Build topology response
+    # -----------------------------
 
     topology = SystemTopology(
         services=[
@@ -27,10 +54,28 @@ def simulate():
         ],
     )
 
+    # -----------------------------
+    # Build metrics response
+    # -----------------------------
+
     metrics = MetricsBundle(
-        latency_ms=[MetricPoint(**m) for m in result.metrics["latency_ms"]],
-        error_rate_pct=[MetricPoint(**m) for m in result.metrics["error_rate_pct"]],
+        latency_ms=[
+            MetricPoint(**m) for m in result.metrics["latency_ms"]
+        ],
+        error_rate_pct=[
+            MetricPoint(**m) for m in result.metrics["error_rate_pct"]
+        ],
+        request_volume=[
+            MetricPoint(**m) for m in result.metrics["request_volume"]
+        ],
+        queue_depth=[
+            MetricPoint(**m) for m in result.metrics["queue_depth"]
+        ],
     )
+
+    # -----------------------------
+    # Derive system mode
+    # -----------------------------
 
     system_mode = max(
         (svc.status.value for svc in result.services.values()),

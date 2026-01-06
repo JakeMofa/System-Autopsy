@@ -11,18 +11,29 @@ Rules:
 Explain clearly and concisely.
 """
 
+
 def build_explanation_prompt(summary: dict) -> str:
+    services_block = "\n".join(
+        f"- {name}: latency={data['latency_ms']:.1f}ms, "
+        f"errors={data['error_rate_pct']:.2f}%, "
+        f"status={data['status']}"
+        for name, data in summary["services"].items()
+    )
+
+    factors = summary.get("identified_factors", [])
+    mitigations = summary.get("mitigations", [])
+
     return f"""
 System mode: {summary['system_mode']}
 
-Affected services:
-{summary['affected_services']}
+Service metrics:
+{services_block}
 
-Primary factors:
-{summary['factors']}
+Identified contributing factors:
+{', '.join(factors) if factors else 'None'}
 
 Suggested mitigations:
-{summary['mitigations']}
+{', '.join(mitigations) if mitigations else 'None'}
 
 Write a clear, human-readable explanation of what happened and why.
 """

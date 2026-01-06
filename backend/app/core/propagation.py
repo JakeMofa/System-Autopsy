@@ -1,3 +1,4 @@
+##app/core/propagation
 from .simulation import SimulationResult
 from .rules import evaluate_health, HealthStatus
 

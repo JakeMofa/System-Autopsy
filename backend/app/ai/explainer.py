@@ -1,36 +1,42 @@
-import subprocess
-import json
+import os
+import requests
 
 from app.ai.prompts import SYSTEM_PROMPT, build_explanation_prompt
 from app.ai.validation import validate_explanation
 
+OLLAMA_URL = os.getenv(
+    "OLLAMA_URL",
+    "http://127.0.0.1:11434/api/generate"
+)
 
-OLLAMA_MODEL = "mistral"
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
 
 
 def generate_ai_explanation(summary: dict) -> str | None:
     """
-    Generate an AI explanation using Ollama.
+    Generate an AI explanation using Ollama (HTTP API).
     Returns None if AI fails or output is invalid.
     """
 
     try:
         prompt = build_explanation_prompt(summary)
-
         full_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}"
 
-        result = subprocess.run(
-            ["ollama", "run", OLLAMA_MODEL],
-            input=full_prompt,
-            capture_output=True,
-            text=True,
-            timeout=15,
+        response = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": full_prompt,
+                "stream": False,
+            },
+            timeout=60,
         )
 
-        if result.returncode != 0:
+        if response.status_code != 200:
             return None
 
-        ai_text = result.stdout.strip()
+        data = response.json()
+        ai_text = data.get("response", "").strip()
 
         if not ai_text:
             return None
@@ -40,5 +46,6 @@ def generate_ai_explanation(summary: dict) -> str | None:
 
         return ai_text
 
-    except Exception:
+    except Exception as e:
+        print("OLLAMA AI ERROR:", e)
         return None

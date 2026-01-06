@@ -1,9 +1,15 @@
-from typing import Dict, List
+# app/core/simulation.py
+
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 import random
 
 from .rules import evaluate_health, HealthStatus
 
+
+# -----------------------------
+# Data Models
+# -----------------------------
 
 @dataclass
 class ServiceState:
@@ -19,6 +25,10 @@ class SimulationResult:
     metrics: Dict[str, List[Dict[str, float]]]
 
 
+# -----------------------------
+# Metric Generators
+# -----------------------------
+
 def generate_latency(base: float, variance: float) -> float:
     return max(0.0, random.uniform(base - variance, base + variance))
 
@@ -27,14 +37,22 @@ def generate_error_rate(base: float, variance: float) -> float:
     return max(0.0, random.uniform(base - variance, base + variance))
 
 
+# -----------------------------
+# Baseline Simulation
+# -----------------------------
+
 def run_baseline_simulation() -> SimulationResult:
     """
     Runs a clean system simulation with no failures injected.
+    Generates synthetic telemetry for a distributed system.
     """
 
-    services = {}
+    services: Dict[str, ServiceState] = {}
 
-    # Simulated baseline metrics
+    # -----------------------------
+    # Per-service baseline metrics
+    # -----------------------------
+
     api_latency = generate_latency(80, 20)
     orders_latency = generate_latency(120, 30)
     db_latency = generate_latency(100, 25)
@@ -73,16 +91,89 @@ def run_baseline_simulation() -> SimulationResult:
         status=evaluate_health(external_latency, external_errors),
     )
 
-    # Simple time-series metric placeholders
+    # -----------------------------
+    # Time-series system metrics
+    # -----------------------------
+
     metrics = {
         "latency_ms": [
-            {"time": i, "value": generate_latency(120, 30)} for i in range(30)
+            {"time": i, "value": generate_latency(120, 30)}
+            for i in range(30)
         ],
         "error_rate_pct": [
-            {"time": i, "value": generate_error_rate(0.5, 0.2)} for i in range(30)
+            {"time": i, "value": generate_error_rate(0.5, 0.2)}
+            for i in range(30)
+        ],
+        "request_volume": [
+            {"time": i, "value": random.randint(300, 600)}
+            for i in range(30)
+        ],
+        "queue_depth": [
+            {"time": i, "value": random.randint(5, 40)}
+            for i in range(30)
         ],
     }
 
-    return SimulationResult(services=services, metrics=metrics)
+    return SimulationResult(
+        services=services,
+        metrics=metrics,
+    )
 
 
+# -----------------------------
+# Scenario-Aware Simulation
+# -----------------------------
+
+def run_simulation(scenario: Optional[str]) -> SimulationResult:
+    """
+    Runs a scenario-aware simulation.
+    Starts from baseline behavior and applies controlled failure modifiers.
+    """
+
+    result = run_baseline_simulation()
+
+    if not scenario:
+        return result
+
+    # -----------------------------
+    # Database Latency Spike
+    # -----------------------------
+    if scenario == "Database Latency Spike":
+        db = result.services.get("database")
+        if db:
+            db.latency_ms *= 3
+            db.error_rate_pct *= 2
+            db.status = evaluate_health(db.latency_ms, db.error_rate_pct)
+
+        for point in result.metrics["queue_depth"]:
+            point["value"] *= 2
+
+    # -----------------------------
+    # External Dependency Degradation
+    # -----------------------------
+    elif scenario == "External Dependency Degradation":
+        ext = result.services.get("external_dependency")
+        if ext:
+            ext.latency_ms *= 2
+            ext.error_rate_pct *= 1.8
+            ext.status = evaluate_health(ext.latency_ms, ext.error_rate_pct)
+
+    # -----------------------------
+    # Retry Amplification
+    # -----------------------------
+    elif scenario == "Retry Amplification":
+        orders = result.services.get("orders_service")
+        if orders:
+            orders.latency_ms *= 1.8
+            orders.error_rate_pct *= 1.5
+            orders.status = evaluate_health(
+                orders.latency_ms, orders.error_rate_pct
+            )
+
+        for point in result.metrics["request_volume"]:
+            point["value"] = int(point["value"] * 1.6)
+
+        for point in result.metrics["queue_depth"]:
+            point["value"] = int(point["value"] * 2.5)
+
+    return result
