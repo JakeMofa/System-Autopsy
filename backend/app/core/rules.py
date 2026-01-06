@@ -1,3 +1,5 @@
+# app/core/rules.py
+
 from enum import Enum
 
 
@@ -7,19 +9,26 @@ class HealthStatus(str, Enum):
     UNHEALTHY = "unhealthy"
 
 
-# Thresholds that determine degraded mode
-LATENCY_DEGRADED_MS = 800
-LATENCY_UNHEALTHY_MS = 1500
+# Latency thresholds (ms)
+LATENCY_DEGRADED_MS = 300
+LATENCY_UNHEALTHY_MS = 900
 
-ERROR_RATE_DEGRADED = 2.0   # percent
-ERROR_RATE_UNHEALTHY = 5.0  # percent
+# Error rate thresholds (fraction 0–1)
+ERROR_RATE_DEGRADED = 0.03    # 3%
+ERROR_RATE_UNHEALTHY = 0.12   # 12%
 
 
 def evaluate_health(latency_ms: float, error_rate_pct: float) -> HealthStatus:
-    if latency_ms >= LATENCY_UNHEALTHY_MS or error_rate_pct >= ERROR_RATE_UNHEALTHY:
+    if (
+        latency_ms >= LATENCY_UNHEALTHY_MS
+        or error_rate_pct >= ERROR_RATE_UNHEALTHY
+    ):
         return HealthStatus.UNHEALTHY
 
-    if latency_ms >= LATENCY_DEGRADED_MS or error_rate_pct >= ERROR_RATE_DEGRADED:
+    if (
+        latency_ms >= LATENCY_DEGRADED_MS
+        or error_rate_pct >= ERROR_RATE_DEGRADED
+    ):
         return HealthStatus.DEGRADED
 
     return HealthStatus.HEALTHY

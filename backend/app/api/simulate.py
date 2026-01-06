@@ -32,7 +32,7 @@ def simulate(req: SimulateRequest):
     - If scenario is provided → scenario-aware degradation
     """
 
-    # key 
+    # Run simulation (baseline or scenario-aware)
     result = run_simulation(req.scenario)
 
     # -----------------------------
@@ -45,6 +45,8 @@ def simulate(req: SimulateRequest):
                 id=key,
                 name=svc.name,
                 status=svc.status.value,
+                latency_ms=round(svc.latency_ms, 1),
+                error_rate_pct=round(svc.error_rate_pct, 2),
             )
             for key, svc in result.services.items()
         ],

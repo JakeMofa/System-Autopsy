@@ -1,29 +1,48 @@
-##app/core/propagation
-from .simulation import SimulationResult
-from .rules import evaluate_health, HealthStatus
+from typing import TYPE_CHECKING
+from .rules import HealthStatus
+
+if TYPE_CHECKING:
+    from .simulation import SimulationResult
 
 
-def propagate_failures(result: SimulationResult) -> None:
+def propagate_failures(result: "SimulationResult") -> None:
     """
     Propagate degradation through service dependencies.
+
+    Dependency chain:
+      API Gateway -> Orders Service -> Database
+
+    IMPORTANT:
+    - Do NOT recompute health here
+    - Only adjust latency / error rates
     """
 
-    db = result.services["database"]
-    orders = result.services["orders_service"]
-    api = result.services["api_gateway"]
+    db = result.services.get("database")
+    orders = result.services.get("orders_service")
+    api = result.services.get("api_gateway")
 
-    # Database impacts Orders Service
-    if db.status in (HealthStatus.DEGRADED, HealthStatus.UNHEALTHY):
-        orders.latency_ms += db.latency_ms * 0.4
-        orders.error_rate_pct += db.error_rate_pct * 0.6
-        orders.status = evaluate_health(
-            orders.latency_ms, orders.error_rate_pct
-        )
+    # -----------------------------
+    # Database → Orders Service
+    # -----------------------------
+    if db and db.status == HealthStatus.UNHEALTHY:
+        if orders:
+            orders.latency_ms *= 1.25
+            orders.error_rate_pct *= 1.2
 
-    # Orders Service impacts API Gateway
-    if orders.status in (HealthStatus.DEGRADED, HealthStatus.UNHEALTHY):
-        api.latency_ms += orders.latency_ms * 0.2
-        api.error_rate_pct += orders.error_rate_pct * 0.3
-        api.status = evaluate_health(
-            api.latency_ms, api.error_rate_pct
-        )
+    elif db and db.status == HealthStatus.DEGRADED:
+        if orders:
+            orders.latency_ms *= 1.15
+            orders.error_rate_pct *= 1.1
+
+    # -----------------------------
+    # Orders Service → API Gateway
+    # -----------------------------
+    if orders and orders.status == HealthStatus.UNHEALTHY:
+        if api:
+            api.latency_ms *= 1.2
+            api.error_rate_pct *= 1.15
+
+    elif orders and orders.status == HealthStatus.DEGRADED:
+        if api:
+            api.latency_ms *= 1.1
+            api.error_rate_pct *= 1.05

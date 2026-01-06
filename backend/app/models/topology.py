@@ -1,3 +1,4 @@
+## app/models/topology
 from pydantic import BaseModel
 from typing import List
 
@@ -6,6 +7,9 @@ class ServiceNode(BaseModel):
     id: str
     name: str
     status: str
+
+    latency_ms: float
+    error_rate_pct: float
 
 
 class DependencyEdge(BaseModel):
@@ -16,3 +20,4 @@ class DependencyEdge(BaseModel):
 class SystemTopology(BaseModel):
     services: List[ServiceNode]
     dependencies: List[DependencyEdge]
+

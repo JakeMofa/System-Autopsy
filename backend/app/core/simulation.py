@@ -1,10 +1,9 @@
-# app/core/simulation.py
-
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 import random
 
-from .rules import evaluate_health, HealthStatus
+from .rules import evaluate_health
+from .propagation import propagate_failures
 
 
 # -----------------------------
@@ -16,7 +15,7 @@ class ServiceState:
     name: str
     latency_ms: float
     error_rate_pct: float
-    status: HealthStatus
+    status: str
 
 
 @dataclass
@@ -44,24 +43,20 @@ def generate_error_rate(base: float, variance: float) -> float:
 def run_baseline_simulation() -> SimulationResult:
     """
     Runs a clean system simulation with no failures injected.
-    Generates synthetic telemetry for a distributed system.
+    Baseline is allowed to be fully HEALTHY.
     """
 
     services: Dict[str, ServiceState] = {}
-
-    # -----------------------------
-    # Per-service baseline metrics
-    # -----------------------------
 
     api_latency = generate_latency(80, 20)
     orders_latency = generate_latency(120, 30)
     db_latency = generate_latency(100, 25)
     external_latency = generate_latency(150, 40)
 
-    api_errors = generate_error_rate(0.2, 0.1)
-    orders_errors = generate_error_rate(0.5, 0.2)
-    db_errors = generate_error_rate(0.3, 0.1)
-    external_errors = generate_error_rate(0.7, 0.3)
+    api_errors = generate_error_rate(0.002, 0.001)
+    orders_errors = generate_error_rate(0.005, 0.002)
+    db_errors = generate_error_rate(0.003, 0.001)
+    external_errors = generate_error_rate(0.007, 0.003)
 
     services["api_gateway"] = ServiceState(
         name="API Gateway",
@@ -91,17 +86,13 @@ def run_baseline_simulation() -> SimulationResult:
         status=evaluate_health(external_latency, external_errors),
     )
 
-    # -----------------------------
-    # Time-series system metrics
-    # -----------------------------
-
     metrics = {
         "latency_ms": [
             {"time": i, "value": generate_latency(120, 30)}
             for i in range(30)
         ],
         "error_rate_pct": [
-            {"time": i, "value": generate_error_rate(0.5, 0.2)}
+            {"time": i, "value": generate_error_rate(0.005, 0.002)}
             for i in range(30)
         ],
         "request_volume": [
@@ -114,10 +105,7 @@ def run_baseline_simulation() -> SimulationResult:
         ],
     }
 
-    return SimulationResult(
-        services=services,
-        metrics=metrics,
-    )
+    return SimulationResult(services=services, metrics=metrics)
 
 
 # -----------------------------
@@ -127,7 +115,12 @@ def run_baseline_simulation() -> SimulationResult:
 def run_simulation(scenario: Optional[str]) -> SimulationResult:
     """
     Runs a scenario-aware simulation.
-    Starts from baseline behavior and applies controlled failure modifiers.
+
+    Rules:
+    - Baseline may be all HEALTHY
+    - Any scenario MUST produce visible degradation
+    - Scenario applies local damage only
+    - Dependency effects are handled in propagation.py
     """
 
     result = run_baseline_simulation()
@@ -139,41 +132,70 @@ def run_simulation(scenario: Optional[str]) -> SimulationResult:
     # Database Latency Spike
     # -----------------------------
     if scenario == "Database Latency Spike":
-        db = result.services.get("database")
-        if db:
-            db.latency_ms *= 3
-            db.error_rate_pct *= 2
-            db.status = evaluate_health(db.latency_ms, db.error_rate_pct)
+        db = result.services["database"]
+        db.latency_ms *= 2.5
+        db.error_rate_pct *= 2.0
 
-        for point in result.metrics["queue_depth"]:
-            point["value"] *= 2
+        for p in result.metrics["queue_depth"]:
+            p["value"] = int(p["value"] * 2)
+
+        for p in result.metrics["latency_ms"]:
+            p["value"] *= 1.4
 
     # -----------------------------
     # External Dependency Degradation
     # -----------------------------
     elif scenario == "External Dependency Degradation":
-        ext = result.services.get("external_dependency")
-        if ext:
-            ext.latency_ms *= 2
-            ext.error_rate_pct *= 1.8
-            ext.status = evaluate_health(ext.latency_ms, ext.error_rate_pct)
+        ext = result.services["external_dependency"]
+        ext.latency_ms *= 2.0
+        ext.error_rate_pct *= 1.8
+
+        for p in result.metrics["latency_ms"]:
+            p["value"] *= 1.2
 
     # -----------------------------
     # Retry Amplification
     # -----------------------------
     elif scenario == "Retry Amplification":
-        orders = result.services.get("orders_service")
-        if orders:
-            orders.latency_ms *= 1.8
-            orders.error_rate_pct *= 1.5
-            orders.status = evaluate_health(
-                orders.latency_ms, orders.error_rate_pct
-            )
+        orders = result.services["orders_service"]
+        orders.latency_ms *= 1.8
+        orders.error_rate_pct *= 1.6
 
-        for point in result.metrics["request_volume"]:
-            point["value"] = int(point["value"] * 1.6)
+        for p in result.metrics["request_volume"]:
+            p["value"] = int(p["value"] * 1.6)
 
-        for point in result.metrics["queue_depth"]:
-            point["value"] = int(point["value"] * 2.5)
+        for p in result.metrics["queue_depth"]:
+            p["value"] = int(p["value"] * 2.2)
+
+    # -----------------------------
+    # Health Evaluation — PASS 1
+    # -----------------------------
+    for svc in result.services.values():
+        svc.status = evaluate_health(svc.latency_ms, svc.error_rate_pct)
+
+    # -----------------------------
+    # Dependency Propagation
+    # -----------------------------
+    propagate_failures(result)
+
+    # -----------------------------
+    # Health Evaluation — PASS 2
+    # -----------------------------
+    for svc in result.services.values():
+        svc.status = evaluate_health(svc.latency_ms, svc.error_rate_pct)
+
+    # -----------------------------
+    # HARD GUARANTEE:
+    # No scenario run may end fully healthy
+    # -----------------------------
+    if all(svc.status == "healthy" for svc in result.services.values()):
+        # Force a visible signal (deterministic, minimal)
+        victim = result.services["orders_service"]
+        victim.latency_ms += 350
+        victim.error_rate_pct += 0.04
+        victim.status = evaluate_health(
+            victim.latency_ms,
+            victim.error_rate_pct,
+        )
 
     return result
