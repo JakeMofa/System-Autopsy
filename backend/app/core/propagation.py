@@ -1,3 +1,4 @@
+# app/core/propagation.py
 from typing import TYPE_CHECKING
 from .rules import HealthStatus
 
@@ -12,9 +13,12 @@ def propagate_failures(result: "SimulationResult") -> None:
     Dependency chain:
       API Gateway -> Orders Service -> Database
 
-    IMPORTANT:
-    - Do NOT recompute health here
-    - Only adjust latency / error rates
+    Design rules:
+    - Deterministic (no randomness)
+    - DEGRADED propagates gently
+    - UNHEALTHY propagates strongly
+    - Propagation must NOT auto-escalate minor incidents
+    - Health is NOT recomputed here
     """
 
     db = result.services.get("database")
@@ -24,25 +28,27 @@ def propagate_failures(result: "SimulationResult") -> None:
     # -----------------------------
     # Database → Orders Service
     # -----------------------------
-    if db and db.status == HealthStatus.UNHEALTHY:
-        if orders:
-            orders.latency_ms *= 1.25
-            orders.error_rate_pct *= 1.2
+    if db and orders:
+        if db.status == HealthStatus.UNHEALTHY:
+            # Severe DB issues: blocked threads, retries, queue buildup
+            orders.latency_ms += 500
+            orders.error_rate_pct += 2.5
 
-    elif db and db.status == HealthStatus.DEGRADED:
-        if orders:
-            orders.latency_ms *= 1.15
-            orders.error_rate_pct *= 1.1
+        elif db.status == HealthStatus.DEGRADED:
+            # Mild DB issues: slower queries, limited contention
+            orders.latency_ms += 120
+            orders.error_rate_pct += 0.4
 
     # -----------------------------
     # Orders Service → API Gateway
     # -----------------------------
-    if orders and orders.status == HealthStatus.UNHEALTHY:
-        if api:
-            api.latency_ms *= 1.2
-            api.error_rate_pct *= 1.15
+    if orders and api:
+        if orders.status == HealthStatus.UNHEALTHY:
+            # Orders meltdown affects API response times & errors
+            api.latency_ms += 400
+            api.error_rate_pct += 1.5
 
-    elif orders and orders.status == HealthStatus.DEGRADED:
-        if api:
-            api.latency_ms *= 1.1
-            api.error_rate_pct *= 1.05
+        elif orders.status == HealthStatus.DEGRADED:
+            # Minor downstream slowdown, not an outage
+            api.latency_ms += 90
+            api.error_rate_pct += 0.25
