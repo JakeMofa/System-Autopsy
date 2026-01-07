@@ -1,4 +1,5 @@
-#app/api/explain.py
+# app/api/explain.py
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -8,27 +9,54 @@ from app.core.propagation import propagate_failures
 
 from app.models.explanation import ExplanationResponse, MitigationSuggestion
 from app.ai.explainer import generate_ai_explanation
+
+#  deterministic explain payload
+from app.core.explain_payload import build_explain_payload
+
 # Optional later:
 # from app.ai.groq_explainer import generate_groq_explanation
 
 router = APIRouter()
 
 
+# -----------------------------
+# Request Model
+# -----------------------------
+
 class ExplainRequest(BaseModel):
     scenario: FailureScenario
 
 
+# -----------------------------
+# Explain Endpoint
+# -----------------------------
+
 @router.post("/explain", response_model=ExplanationResponse)
 def explain(request: ExplainRequest):
-    #  Run simulation
+    # -----------------------------
+    # 1. Run baseline simulation
+    # -----------------------------
     result = run_baseline_simulation()
 
+    # -----------------------------
+    # 2. Apply failure scenario
+    # -----------------------------
     applier = FAILURE_APPLIERS.get(request.scenario)
     if applier:
         applier(result)
         propagate_failures(result)
 
-    #  Collect deterministic facts (NOT explanation text)
+    # -----------------------------
+    # 3.  Build deterministic explain payload (NO AI)
+    # -----------------------------
+    payload = build_explain_payload(result, request.scenario.value)
+    print("=== EXPLAIN PAYLOAD ===")
+    print(payload)
+
+    # -----------------------------
+    # 4. Existing deterministic factors & mitigations
+    #    (kept for now — will be replaced later)
+    # -----------------------------
     factors = []
     mitigations = []
 
@@ -53,7 +81,9 @@ def explain(request: ExplainRequest):
             )
         )
 
-    #  Build structured, bounded summary for AI
+    # -----------------------------
+    # 5. Existing summary for AI (temporary)
+    # -----------------------------
     summary = {
         "system_mode": max(
             svc.status.value for svc in result.services.values()
@@ -70,7 +100,9 @@ def explain(request: ExplainRequest):
         "mitigations": [m.action for m in mitigations],
     }
 
-    # AI-first explanation
+    # -----------------------------
+    # 6. AI explanation (unchanged for now)
+    # -----------------------------
     text = []
 
     ai_text = generate_ai_explanation(summary)
@@ -84,12 +116,13 @@ def explain(request: ExplainRequest):
     if ai_text:
         text.append(f"[AI:{ai_source}] {ai_text}")
     else:
-        # LAST resort only
         text.append(
             "[fallback] System degradation detected based on service health thresholds."
         )
 
-    #  Final response
+    # -----------------------------
+    # 7. Final response
+    # -----------------------------
     return ExplanationResponse(
         text=text,
         identified_factors=factors,
