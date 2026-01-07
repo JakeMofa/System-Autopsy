@@ -1,9 +1,8 @@
-
-<img width="1445" height="853" alt="System Autotopsy" src="https://github.com/user-attachments/assets/2346027b-56f1-4ae4-8f08-0a86e18422a7" />
-
-
-
+## Scenario 1 , Simulation with multiple Scenarios
 https://github.com/user-attachments/assets/559727d3-f8bc-4898-95cb-35730e647fbd
+
+## Scenario 2, LLM Bounded Gen AI, Insight Analysis, no hallucination off data from system
+https://github.com/user-attachments/assets/979afcd9-eac1-40b0-ab1f-cddfe54bac05
 
 
 
