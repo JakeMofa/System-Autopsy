@@ -15,7 +15,10 @@ from .propagation import propagate_failures
 class ServiceState:
     name: str
     latency_ms: float
-    error_rate_pct: float  # percent (0–100)
+    # IMPORTANT:
+    # error_rate_pct is a FRACTION (0.0–1.0), not 0–100.
+    # Example: 0.02 means 2%
+    error_rate_pct: float
     status: HealthStatus
 
 
@@ -26,19 +29,43 @@ class SimulationResult:
 
 
 # -----------------------------
-# Metric Generators
+# Helpers
 # -----------------------------
 
 def generate_latency(base: float, variance: float) -> float:
     return max(0.0, random.uniform(base - variance, base + variance))
 
 
-def generate_error_rate_pct(base: float, variance: float) -> float:
+def generate_error_rate(base: float, variance: float) -> float:
     """
-    Error rate as percent (0–100).
-    Example: base=0.5 means ~0.5%
+    Error rate as FRACTION (0.0–1.0).
+    Example: base=0.006 means ~0.6%
     """
     return max(0.0, random.uniform(base - variance, base + variance))
+
+
+def normalize_scenario(s: Optional[str]) -> Optional[str]:
+    """
+    Accept either:
+      - enum values: database_latency_spike
+      - UI display:  Database Latency Spike
+    and normalize to enum value.
+    """
+    if not s:
+        return None
+
+    mapping = {
+        "Database Latency Spike": "database_latency_spike",
+        "External Dependency Degradation": "external_dependency_degradation",
+        "Retry Amplification": "retry_amplification",
+    }
+
+    if s in mapping:
+        return mapping[s]
+
+    # best-effort normalization
+    lowered = s.strip().lower().replace(" ", "_")
+    return lowered
 
 
 # -----------------------------
@@ -47,7 +74,7 @@ def generate_error_rate_pct(base: float, variance: float) -> float:
 
 def run_baseline_simulation() -> SimulationResult:
     """
-    Clean, healthy baseline.
+    Clean, healthy baseline (fresh data every run).
     """
 
     services: Dict[str, ServiceState] = {}
@@ -57,10 +84,11 @@ def run_baseline_simulation() -> SimulationResult:
     db_latency = generate_latency(100, 25)
     external_latency = generate_latency(150, 40)
 
-    api_errors = generate_error_rate_pct(0.3, 0.2)
-    orders_errors = generate_error_rate_pct(0.6, 0.4)
-    db_errors = generate_error_rate_pct(0.4, 0.3)
-    external_errors = generate_error_rate_pct(0.8, 0.5)
+    # FRACTIONS (0–1)
+    api_errors = generate_error_rate(0.003, 0.002)       # ~0.3%
+    orders_errors = generate_error_rate(0.006, 0.004)    # ~0.6%
+    db_errors = generate_error_rate(0.004, 0.003)        # ~0.4%
+    external_errors = generate_error_rate(0.008, 0.005)  # ~0.8%
 
     services["api_gateway"] = ServiceState(
         name="API Gateway",
@@ -91,22 +119,11 @@ def run_baseline_simulation() -> SimulationResult:
     )
 
     metrics = {
-        "latency_ms": [
-            {"time": i, "value": generate_latency(120, 30)}
-            for i in range(30)
-        ],
-        "error_rate_pct": [
-            {"time": i, "value": generate_error_rate_pct(0.6, 0.4)}
-            for i in range(30)
-        ],
-        "request_volume": [
-            {"time": i, "value": random.randint(300, 600)}
-            for i in range(30)
-        ],
-        "queue_depth": [
-            {"time": i, "value": random.randint(5, 40)}
-            for i in range(30)
-        ],
+        "latency_ms": [{"time": i, "value": generate_latency(120, 30)} for i in range(30)],
+        # FRACTIONS (0–1)
+        "error_rate_pct": [{"time": i, "value": generate_error_rate(0.006, 0.004)} for i in range(30)],
+        "request_volume": [{"time": i, "value": random.randint(300, 600)} for i in range(30)],
+        "queue_depth": [{"time": i, "value": random.randint(5, 40)} for i in range(30)],
     }
 
     return SimulationResult(services=services, metrics=metrics)
@@ -120,40 +137,41 @@ def run_simulation(scenario: Optional[str]) -> SimulationResult:
     """
     Scenario-aware simulation with severity tiers.
 
-    Severity is chosen ONCE per run:
-    - minor
-    - major
-    - critical
+    scenario values expected (enum):
+      - database_latency_spike
+      - external_dependency_degradation
+      - retry_amplification
+
+    We also accept UI display strings and normalize them.
     """
 
     result = run_baseline_simulation()
 
-    if not scenario:
+    scenario_norm = normalize_scenario(scenario)
+    if not scenario_norm:
         return result
 
     severity = random.choices(
         ["minor", "major", "critical"],
         weights=[0.5, 0.35, 0.15],
-        k=1
+        k=1,
     )[0]
 
     # -----------------------------
     # Database Latency Spike
     # -----------------------------
-    if scenario == "Database Latency Spike":
+    if scenario_norm == "database_latency_spike":
         db = result.services["database"]
 
         if severity == "minor":
             db.latency_ms = random.uniform(400, 700)
-            db.error_rate_pct = random.uniform(1.5, 3.5)
-
+            db.error_rate_pct = random.uniform(0.015, 0.035)   # 1.5%–3.5%
         elif severity == "major":
             db.latency_ms = random.uniform(800, 1200)
-            db.error_rate_pct = random.uniform(4.0, 6.5)
-
+            db.error_rate_pct = random.uniform(0.040, 0.065)   # 4.0%–6.5%
         else:  # critical
             db.latency_ms = random.uniform(1300, 1800)
-            db.error_rate_pct = random.uniform(7.0, 10.0)
+            db.error_rate_pct = random.uniform(0.070, 0.100)   # 7%–10%
 
         for p in result.metrics["queue_depth"]:
             p["value"] = int(p["value"] * random.uniform(1.5, 3.0))
@@ -167,20 +185,18 @@ def run_simulation(scenario: Optional[str]) -> SimulationResult:
     # -----------------------------
     # External Dependency Degradation
     # -----------------------------
-    elif scenario == "External Dependency Degradation":
+    elif scenario_norm == "external_dependency_degradation":
         ext = result.services["external_dependency"]
 
         if severity == "minor":
             ext.latency_ms = random.uniform(350, 600)
-            ext.error_rate_pct = random.uniform(1.5, 3.0)
-
+            ext.error_rate_pct = random.uniform(0.015, 0.030)
         elif severity == "major":
             ext.latency_ms = random.uniform(650, 950)
-            ext.error_rate_pct = random.uniform(3.5, 6.0)
-
+            ext.error_rate_pct = random.uniform(0.035, 0.060)
         else:  # critical
             ext.latency_ms = random.uniform(1000, 1400)
-            ext.error_rate_pct = random.uniform(6.5, 9.0)
+            ext.error_rate_pct = random.uniform(0.065, 0.090)
 
         for p in result.metrics["latency_ms"]:
             p["value"] *= random.uniform(1.2, 1.6)
@@ -191,20 +207,18 @@ def run_simulation(scenario: Optional[str]) -> SimulationResult:
     # -----------------------------
     # Retry Amplification
     # -----------------------------
-    elif scenario == "Retry Amplification":
+    elif scenario_norm == "retry_amplification":
         orders = result.services["orders_service"]
 
         if severity == "minor":
             orders.latency_ms = random.uniform(350, 600)
-            orders.error_rate_pct = random.uniform(2.0, 4.0)
-
+            orders.error_rate_pct = random.uniform(0.020, 0.040)
         elif severity == "major":
             orders.latency_ms = random.uniform(650, 950)
-            orders.error_rate_pct = random.uniform(4.5, 7.0)
-
+            orders.error_rate_pct = random.uniform(0.045, 0.070)
         else:  # critical
             orders.latency_ms = random.uniform(1000, 1500)
-            orders.error_rate_pct = random.uniform(7.5, 10.0)
+            orders.error_rate_pct = random.uniform(0.075, 0.100)
 
         for p in result.metrics["request_volume"]:
             p["value"] = int(p["value"] * random.uniform(1.4, 2.5))
@@ -227,24 +241,15 @@ def run_simulation(scenario: Optional[str]) -> SimulationResult:
     propagate_failures(result)
 
     # -----------------------------
-    # CLAMP ERROR RATES (CRITICAL FIX)
+    # Clamp error rate (fraction)
     # -----------------------------
     for svc in result.services.values():
-        svc.error_rate_pct = min(svc.error_rate_pct, 15.0)
+        svc.error_rate_pct = min(max(svc.error_rate_pct, 0.0), 0.15)  # cap at 15%
 
     # -----------------------------
     # Health Evaluation — PASS 2
     # -----------------------------
     for svc in result.services.values():
         svc.status = evaluate_health(svc.latency_ms, svc.error_rate_pct)
-
-    # -----------------------------
-    # HARD GUARANTEE
-    # -----------------------------
-    if all(svc.status == HealthStatus.HEALTHY for svc in result.services.values()):
-        victim = result.services["orders_service"]
-        victim.latency_ms = max(victim.latency_ms, 600.0)
-        victim.error_rate_pct = max(victim.error_rate_pct, 4.0)
-        victim.status = evaluate_health(victim.latency_ms, victim.error_rate_pct)
 
     return result
