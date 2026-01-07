@@ -1,3 +1,15 @@
+
+<img width="1445" height="853" alt="System Autotopsy" src="https://github.com/user-attachments/assets/2346027b-56f1-4ae4-8f08-0a86e18422a7" />
+
+
+
+https://github.com/user-attachments/assets/559727d3-f8bc-4898-95cb-35730e647fbd
+
+
+
+
+
+
 ## System Autopsy 
 
 System Autopsy is a failure simulation and explanation system that models how distributed systems degrade under stress and uses a bounded AI-assisted explanation layer to help engineers understand why failures occur and how they propagate.
