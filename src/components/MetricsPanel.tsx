@@ -1,4 +1,4 @@
-// components / MetricsPanel.tsx
+// src/components/MetricsPanel.tsx
 import {
   LineChart,
   Line,
@@ -9,6 +9,8 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+/* ---------- Types ---------- */
+
 interface MetricPoint {
   time: number;
   value: number;
@@ -16,8 +18,7 @@ interface MetricPoint {
 
 /**
  * Metrics coming from backend
- * All fields are OPTIONAL because backend responses
- * may be partial during render cycles
+ * All fields OPTIONAL to prevent render crashes
  */
 interface Metrics {
   latency_ms?: MetricPoint[];
@@ -32,6 +33,8 @@ interface MetricChartProps {
   color: string;
   unit?: string;
 }
+
+/* ---------- Chart ---------- */
 
 function MetricChart({ title, data, color, unit = "" }: MetricChartProps) {
   return (
@@ -80,14 +83,18 @@ function MetricChart({ title, data, color, unit = "" }: MetricChartProps) {
   );
 }
 
+/* ---------- Panel ---------- */
+
 export function MetricsPanel({
   metrics,
   systemMode,
+  aiSystemStateText, // App.tsx
 }: {
   metrics: Metrics | null;
   systemMode: string;
+  aiSystemStateText?: string | null;
 }) {
-  // Empty state before simulation runs
+  // Empty state before simulation
   if (!metrics) {
     return (
       <div className="bg-white border border-gray-200 rounded-lg p-5">
@@ -99,10 +106,8 @@ export function MetricsPanel({
     );
   }
 
-  /**
-   * Defensive mapping — NEVER assume metrics exist
-   * This prevents white screens and runtime crashes
-   */
+  /* ---------- Defensive mapping ---------- */
+
   const latencyData =
     metrics.latency_ms?.map((m) => ({
       time: `${m.time}m`,
@@ -157,7 +162,7 @@ export function MetricsPanel({
         color="#f59e0b"
       />
 
-      {/* System State */}
+      {/* ---------- System State ---------- */}
       <div className="mt-6 pt-6 border-t border-gray-200">
         <h3 className="text-sm text-gray-700 mb-3">System State</h3>
 
@@ -170,8 +175,8 @@ export function MetricsPanel({
           </div>
 
           <p className="text-sm text-gray-600 leading-relaxed">
-            System behavior reflects the current simulation state and
-            dependency-driven degradation across services.
+            {aiSystemStateText ??
+              "System behavior reflects the current simulation state and dependency-driven degradation across services."}
           </p>
         </div>
       </div>

@@ -15,6 +15,8 @@ type Topology = {
     id: string;
     name: string;
     status: SystemMode;
+    latency_ms: number;
+    error_rate_pct: number;
   }[];
   dependencies: {
     source: string;
@@ -36,8 +38,8 @@ type Metrics = {
 
 type Explanation = {
   text: string[];
-  identified_factors: string[];
-  mitigation_suggestions: {
+  identifiedFactors: string[];
+  mitigationSuggestions: {
     action: string;
     description: string;
   }[];
@@ -46,19 +48,31 @@ type Explanation = {
 /* ---------- App ---------- */
 
 export default function App() {
+  /* ---------- Core system state ---------- */
   const [topology, setTopology] = useState<Topology | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [systemMode, setSystemMode] = useState<SystemMode>("healthy");
 
+  /* ---------- AI explanation ---------- */
   const [explanation, setExplanation] = useState<Explanation | null>(null);
+
+  /* ---------- UI state ---------- */
   const [loading, setLoading] = useState(false);
 
-  // Selected failure scenario (set by Inject Failure)
+  /* ---------- Scenario & gating ---------- */
   const [activeScenario, setActiveScenario] = useState<string | null>(null);
+  const [hasInjectedFailure, setHasInjectedFailure] = useState(false);
+  const [hasRunSimulation, setHasRunSimulation] = useState(false);
 
-  /* ---------- API calls ---------- */
+  /* =========================================================
+     API CALLS
+     ========================================================= */
 
-  // Run simulation (uses selected scenario)
+  /**
+   * Run simulation
+   * - populates topology + metrics
+   * - clears old AI explanation
+   */
   async function runSimulation() {
     try {
       setLoading(true);
@@ -68,7 +82,7 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          scenario: activeScenario, // 
+          scenario: activeScenario,
         }),
       });
 
@@ -79,6 +93,8 @@ export default function App() {
       setTopology(data.topology);
       setMetrics(data.metrics);
       setSystemMode(data.system_mode);
+
+      setHasRunSimulation(true);
     } catch (err) {
       console.error("Run simulation error:", err);
     } finally {
@@ -86,16 +102,28 @@ export default function App() {
     }
   }
 
-  // Inject failure = SELECT scenario only
+  /**
+   * Inject failure
+   * - selects scenario only
+   */
   function injectFailure(scenario: string) {
-    console.log("Active scenario set to:", scenario);
     setActiveScenario(scenario);
+    setHasInjectedFailure(true);
     setExplanation(null);
   }
 
-  // Run AI explanation (uses selected scenario)
+  /**
+   * Run AI explanation
+   * - HARD gated
+   * - normalizes backend response
+   */
   async function runExplanation() {
-    if (!activeScenario) return;
+    if (!activeScenario || !hasInjectedFailure || !hasRunSimulation) {
+      console.warn(
+        "Explain blocked: select scenario, inject failure, then run simulation."
+      );
+      return;
+    }
 
     try {
       setLoading(true);
@@ -109,7 +137,13 @@ export default function App() {
       if (!res.ok) throw new Error("Explain failed");
 
       const data = await res.json();
-      setExplanation(data);
+
+      // 🔑 Normalize backend → frontend shape
+      setExplanation({
+        text: data.text ?? [],
+        identifiedFactors: data.identified_factors ?? [],
+        mitigationSuggestions: data.mitigation_suggestions ?? [],
+      });
     } catch (err) {
       console.error("Explain error:", err);
     } finally {
@@ -117,7 +151,12 @@ export default function App() {
     }
   }
 
-  /* ---------- Render ---------- */
+  /* =========================================================
+     RENDER
+     ========================================================= */
+
+  const canExplain =
+    Boolean(activeScenario && hasInjectedFailure && hasRunSimulation && topology);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -129,26 +168,30 @@ export default function App() {
 
       <main className="max-w-[1600px] mx-auto px-6 py-6">
         <div className="grid grid-cols-12 gap-6">
-          {/* System Topology */}
+          {/* ---------- System Topology ---------- */}
           <div className="col-span-3">
             <SystemTopology
               topology={topology}
               onInjectFailure={injectFailure}
               onExplain={runExplanation}
               loading={loading}
+              canExplain={canExplain}
             />
           </div>
 
-          {/* Metrics */}
+          {/* ---------- Metrics ---------- */}
           <div className="col-span-5">
-            <MetricsPanel metrics={metrics} systemMode={systemMode} />
+            <MetricsPanel
+              metrics={metrics}
+              systemMode={systemMode}
+              systemExplanation={explanation?.text?.[0]}
+            />
           </div>
 
-          {/* AI Explanation */}
+          {/* ---------- AI Explanation ---------- */}
           <div className="col-span-4">
             <ExplanationPanel
               explanation={explanation}
-              systemMode={systemMode}
               loading={loading}
             />
           </div>
