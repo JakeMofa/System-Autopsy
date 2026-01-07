@@ -4,6 +4,8 @@ https://github.com/user-attachments/assets/559727d3-f8bc-4898-95cb-35730e647fbd
 ## Scenario 2, LLM Bounded Gen AI, Insight Analysis, no hallucination off data from system
 https://github.com/user-attachments/assets/979afcd9-eac1-40b0-ab1f-cddfe54bac05
 
+## Linkedin video
+https://www.linkedin.com/posts/jake-mofa-b52a76205_softwareengineering-systemdesign-reliabilityengineering-activity-7414621886078410752-rQ7y?utm_source=share&utm_medium=member_desktop&rcm=ACoAADROLe4Bj_TsaBaS6r0ZIEwUEoYOlw75hSg
 
 
 
